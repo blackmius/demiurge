@@ -37,10 +37,14 @@
 
 
 /*
-[+] same context for every transport
-[+] async call
-[+] call timeout
-[+] eventEmitter base
+[] base
+    [+] same context for every transport
+    [+] async call
+    [+] call timeout
+    [+] eventEmitter base
+    [+] human-readable errors
+        [] error passing politics
+    
 [] patterns
     [] generator (aka erlang process)
     [] routing (decentralized balancer)
@@ -48,8 +52,13 @@
         https://martinfowler.com/articles/patterns-of-distributed-systems/#NextSteps
         [] fault tolerant consensus algorithm(s)
         [] Gossip Dissemination
-[] type(predicates) checking
-[] auto documenting
+        
+[] contracts 
+    [] clear type(predicates) checking
+    [] auto documenting
+        [] visualise call graphs
+        [] list handlers, their parameters and result types, possible events, doc strings, errors
+    [] auto testing result schemas
 */
 
 /*
