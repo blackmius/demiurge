@@ -60,7 +60,7 @@ export class Context {
     async _sender() {
         try {
             let packet: Packet | undefined;
-            while ((packet = this.drain.pop())) {
+            while ((packet = this.drain.shift())) {
                 await writeAll(this.writer, Context.encoder.encode(packet))
             }
         } finally {
