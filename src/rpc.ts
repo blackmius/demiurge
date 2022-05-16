@@ -2,7 +2,7 @@
 
 import { Encoder, decodeMultiStream } from "https://unpkg.com/@msgpack/msgpack@2.7.2/mod.ts";
 
-import { writeAll, iterateReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
+import { writeAll, iterateReader, readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
 
 type RpcErrorPacket = [code: string, msg: string, ...args: any[]];
 export class RpcError extends Error {
@@ -112,7 +112,8 @@ export class Context {
     }
 
     async listen() {
-        const iter = decodeMultiStream(iterateReader(this.reader)) as AsyncGenerator<Packet>;
+        const stream = readableStreamFromReader(this.reader, { autoClose: false });
+        const iter = decodeMultiStream(stream) as AsyncGenerator<Packet>;
         while (true) {
             const { done, value } = await iter.next();
             if (done) break;
