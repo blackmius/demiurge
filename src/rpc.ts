@@ -2,7 +2,7 @@
 
 import { Encoder, decodeMultiStream } from "https://unpkg.com/@msgpack/msgpack@2.7.2/mod.ts";
 
-import { writeAll, iterateReader, readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
+import { writeAll, readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
 
 type RpcErrorPacket = [code: string, msg: string, ...args: any[]];
 export class RpcError extends Error {
