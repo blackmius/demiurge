@@ -1,6 +1,3 @@
-/*
-
-*/
 // deno-lint-ignore-file no-explicit-any
 
 import { Encoder, decodeMultiStream } from "https://unpkg.com/@msgpack/msgpack@2.7.2/mod.ts";
@@ -8,7 +5,7 @@ import { Encoder, decodeMultiStream } from "https://unpkg.com/@msgpack/msgpack@2
 import { writeAll, iterateReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
 
 type RpcErrorPacket = [code: string, msg: string, ...args: any[]];
-class RpcError extends Error {
+export class RpcError extends Error {
     code: string;
     args: any[];
 
@@ -23,6 +20,8 @@ class RpcError extends Error {
 type Handler = (this: Ctx, ...args: any[]) => any;
 type Handlers = {[name: string]: Handler};
 
+type Callbacks = {[index: number|string]: (result: any, error: RpcErrorPacket) => void};
+
 type CallbackArgs = [result: any, error: RpcErrorPacket];
 
 type Packet = [cb: any, fn: any, ...args: any[]];
@@ -33,11 +32,11 @@ interface Ctx {
     callWithTimeout(timeout: number, name: string, ...args: any[]): Promise<any>
 }
 
-class Context {
+export class Context {
     static encoder = new Encoder();
 
-    handlers: Handlers;
-    cbs: {[index: number]: (result: any, error: RpcErrorPacket) => void} = {};
+    handlers: Handlers = {};
+    cbs: Callbacks = {};
     cbId = 0;
 
     ctx: Ctx = {
@@ -51,12 +50,10 @@ class Context {
 
     constructor(
         reader: Deno.Reader & Deno.Closer,
-        writer: Deno.Writer,
-        handlers: Handlers = {}
+        writer: Deno.Writer
     ) {
         this.reader = reader;
         this.writer = writer;
-        this.handlers = handlers;
     }
 
     async _send(packet: Packet) {
@@ -67,10 +64,20 @@ class Context {
         this._send([null, name, ...args])
     }
 
-    call(name: string, ...args: any[]) {
+    on(name: string, handler: Handler) {
+        this.handlers[name] = handler;
+    }
+
+    wait(cb: string | number, timeout?: number) {
         return new Promise((resolve, reject) => {
-            const cb = this.cbId++;
+            let tId: number;
+            if (timeout) {
+                tId = setTimeout(() => {
+                    reject(new RpcError('WAIT_TIMEOUT', `Timeout waiting ${cb}`));
+                }, timeout);
+            }
             this.cbs[cb] = (result, error) => {
+                clearTimeout(tId);
                 delete this.cbs[cb];
                 if (error !== null) {
                     reject(new RpcError(...error));
@@ -78,19 +85,29 @@ class Context {
                     resolve(result);
                 }
             };
+        })
+    }
+
+    call(name: string, ...args: any[]) {
+        return new Promise((resolve, reject) => {
+            const cb = this.cbId++;
+            this.wait(cb).then(resolve).catch(reject);
             this._send([cb, name, ...args]);
         });
     }
 
     callWithTimeout(timeout: number, name: string, ...args: any[]) {
         return new Promise((resolve, reject) => {
-            const tId = setTimeout(() => {
-                reject(new RpcError('CALL_TIMEOUT', `Timeout when calling ${name}`, name, args));
-            }, timeout);
-            this.call(name, ...args).then(result => {
-                clearTimeout(tId);
-                resolve(result)
-            }).catch(reject);
+            const cb = this.cbId++;
+            this.wait(cb, timeout)
+                .then(resolve)
+                .catch(e => {
+                    if (e instanceof RpcError && e.code == 'WAIT_TIMEOUT') {
+                        e = new RpcError('CALL_TIMEOUT', `Timeout calling ${name}`, name, args);
+                    }
+                    reject(e);
+                });
+            this._send([cb, name, ...args]);
         });
     }
 
@@ -133,19 +150,4 @@ class Context {
             return result;
         }
     }
-}
-
-export async function serve(options: Deno.ListenOptions, handlers: Handlers = {}) {
-    const listener = Deno.listen(options);
-    for await (const conn of listener) {
-        const ctx = new Context(conn, conn, handlers);
-        ctx.listen();
-    }
-}
-
-export async function Client(options: Deno.ConnectOptions, handlers: Handlers = {}) {
-    const conn = await Deno.connect(options);
-    const ctx = new Context(conn, conn, handlers);
-    ctx.listen();
-    return ctx;
 }
