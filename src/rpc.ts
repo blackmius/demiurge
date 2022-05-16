@@ -56,12 +56,30 @@ export class Context {
         this.writer = writer;
     }
 
-    async _send(packet: Packet) {
-        await writeAll(this.writer, Context.encoder.encode(packet));
+    sending = false;
+    async _sender() {
+        try {
+            let packet: Packet | undefined;
+            while ((packet = this.drain.pop())) {
+                await writeAll(this.writer, Context.encoder.encode(packet))
+            }
+        } finally {
+            this.sending = false;
+        }
+    }
+
+    drain: Packet[] = [];
+    _send(packet: Packet) {
+        this.drain.push(packet);
+
+        if (!this.sending) {
+            this.sending = true;
+            this._sender();
+        }
     }
 
     send(name: string, ...args: any[]) {
-        this._send([null, name, ...args])
+        this._send([null, name, ...args]);
     }
 
     on(name: string, handler: Handler) {
