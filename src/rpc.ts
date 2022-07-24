@@ -1,8 +1,8 @@
 // deno-lint-ignore-file no-explicit-any
 
-import { Encoder, decodeMultiStream } from "https://unpkg.com/@msgpack/msgpack@2.7.2/mod.ts";
-
-import { writeAll, readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
+import { readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
+import { TextLineStream } from "https://deno.land/std@0.148.0/streams/mod.ts";
+import { JSONParseStream } from "https://deno.land/std@0.148.0/encoding/json/stream.ts";
 
 type RpcErrorPacket = [code: string, msg: string, ...args: any[]];
 export class RpcError extends Error {
@@ -33,7 +33,7 @@ interface Ctx {
 }
 
 export class Context {
-    static encoder = new Encoder();
+    static encoder = new TextEncoder();
 
     handlers: Handlers = {};
     cbs: Callbacks = {};
@@ -56,26 +56,10 @@ export class Context {
         this.writer = writer;
     }
 
-    sending = false;
-    async _sender() {
-        try {
-            let packet: Packet | undefined;
-            while ((packet = this.drain.shift())) {
-                await writeAll(this.writer, Context.encoder.encode(packet))
-            }
-        } finally {
-            this.sending = false;
-        }
-    }
-
-    drain: Packet[] = [];
+    drain: string = '';
     _send(packet: Packet) {
-        this.drain.push(packet);
-
-        if (!this.sending) {
-            this.sending = true;
-            this._sender();
-        }
+        const buf = Context.encoder.encode(JSON.stringify(packet) + '\n');
+        this.writer.write(buf);
     }
 
     send(name: string, ...args: any[]) {
@@ -131,11 +115,13 @@ export class Context {
 
     async listen() {
         const stream = readableStreamFromReader(this.reader, { autoClose: false });
-        const iter = decodeMultiStream(stream) as AsyncGenerator<Packet>;
-        while (true) {
-            const { done, value } = await iter.next();
-            if (done) break;
-            this.process(value).catch(()=>{}); // TODO: logging
+        const readable = stream
+            .pipeThrough(new TextDecoderStream())
+            .pipeThrough(new TextLineStream())
+            .pipeThrough(new JSONParseStream());
+        
+        for await (const data of readable) {
+            this.process(data).catch(()=>{})
         }
         for (const cb in this.cbs) {
             this.cbs[cb](null, ['CONNECTION_CLOSED', 'Reader is closed'])
