@@ -1,8 +1,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
-import { TextLineStream } from "https://deno.land/std@0.148.0/streams/mod.ts";
-import { JSONParseStream } from "https://deno.land/std@0.148.0/encoding/json/stream.ts";
+import { pack, Unpackr } from "https://deno.land/x/msgpackr@v1.8.0/index.js";
 
 type RpcErrorPacket = [code: string, msg: string, ...args: any[]];
 export class RpcError extends Error {
@@ -56,10 +55,8 @@ export class Context {
         this.writer = writer;
     }
 
-    drain: string = '';
     _send(packet: Packet) {
-        const buf = Context.encoder.encode(JSON.stringify(packet) + '\n');
-        this.writer.write(buf);
+        this.writer.write(pack(packet));
     }
 
     send(name: string, ...args: any[]) {
@@ -81,7 +78,7 @@ export class Context {
             this.cbs[cb] = (result, error) => {
                 clearTimeout(tId);
                 delete this.cbs[cb];
-                if (error !== null) {
+                if (error !== undefined) {
                     reject(new RpcError(...error));
                 } else {
                     resolve(result);
@@ -115,14 +112,19 @@ export class Context {
 
     async listen() {
         const stream = readableStreamFromReader(this.reader, { autoClose: false });
-        const readable = stream
-            .pipeThrough(new TextDecoderStream())
-            .pipeThrough(new TextLineStream())
-            .pipeThrough(new JSONParseStream());
-        
-        for await (const data of readable) {
-            this.process(data).catch(()=>{})
+        const reader = stream.getReader();
+        const unpackr = new Unpackr({ objectMode: true });
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) { break; }
+            const values = unpackr.unpackMultiple(value);
+            if (!values) continue;
+            for (const packet of values) {
+                this.process(packet as Packet).catch(()=>{})
+            }
         }
+
         for (const cb in this.cbs) {
             this.cbs[cb](null, ['CONNECTION_CLOSED', 'Reader is closed'])
         }
