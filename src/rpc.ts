@@ -17,7 +17,7 @@ export class RpcError extends Error {
 }
 
 type Handler = (this: Ctx, ...args: any[]) => any;
-type Handlers = {[name: string]: Handler};
+export type Handlers = {[name: string]: Handler};
 
 type Callbacks = {[index: number|string]: (result: any, error: RpcErrorPacket) => void};
 
@@ -33,6 +33,8 @@ interface Ctx {
 
 export class Context {
     static encoder = new TextEncoder();
+
+    onclosed = ()=>{};
 
     handlers: Handlers = {};
     cbs: Callbacks = {};
@@ -113,7 +115,7 @@ export class Context {
     async listen() {
         const stream = readableStreamFromReader(this.reader, { autoClose: false });
         const reader = stream.getReader();
-        const unpackr = new Unpackr({ objectMode: true });
+        const unpackr = new Unpackr({ useRecords: false });
 
         while (true) {
             const { done, value } = await reader.read();
@@ -121,13 +123,15 @@ export class Context {
             const values = unpackr.unpackMultiple(value);
             if (!values) continue;
             for (const packet of values) {
-                this.process(packet as Packet).catch(()=>{})
+                this.process(packet as Packet).catch(()=>{});
             }
         }
 
         for (const cb in this.cbs) {
-            this.cbs[cb](null, ['CONNECTION_CLOSED', 'Reader is closed'])
+            this.cbs[cb](null, ['CONNECTION_CLOSED', 'Reader is closed']);
         }
+
+        this.onclosed?.();
     }
 
     async process(packet: Packet) {
