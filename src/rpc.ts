@@ -1,7 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { readableStreamFromReader } from 'https://deno.land/std@0.130.0/streams/conversion.ts';
-import { concat } from "https://deno.land/std@0.156.0/bytes/mod.ts";
 import { pack, Unpackr } from "https://deno.land/x/msgpackr@v1.8.0/index.js";
 import { EventEmitter } from "./eventEmitter.ts";
 
@@ -127,7 +126,10 @@ export class Context {
         while (true) {
             const { done, value } = await reader.read();
             if (done) { break; }
-            buf = concat(buf, value);
+            const _buf = new Uint8Array(buf.length + value.length);
+            _buf.set(buf, 0);
+            _buf.set(value, buf.length);
+            buf = _buf;
             let values;
             try {
                 values = unpackr.unpackMultiple(buf);
