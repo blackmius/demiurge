@@ -4,6 +4,14 @@ serve({ port: 3000 }, {
     test(num: number) {}
 });
 
+import { copy } from "https://deno.land/std@0.164.0/streams/conversion.ts";
+
+const listener = Deno.listen({ port: 8080 });
+(async () => {
+    for await (const conn of listener) copy(conn, conn);
+})();
+
+
 const client = await Client({ port: 3000 });
 
 const payload = {
@@ -30,17 +38,42 @@ const payload = {
 };
 
 Deno.bench({
-    name: 'RTT 1000 packets',
+    name: 'rpc',
+    group: 'RTT',
     async fn() {
-        for (let i = 0; i < 1000; i++)
-            await client.call('test', i, payload);
+        await client.call('test', 1, payload);
     }
 });
 
 Deno.bench({
-    name: 'CAST 1000 packets',
+    name: 'rpc',
+    group: 'send',
     async fn() {
-        for (let i = 0; i < 1000; i++)
-            await client.send('test', i, payload);
+        await client.send('test', 1, payload);
+    }
+});
+
+const conn = await Deno.connect({ port: 8080 });
+
+
+const size = 512;
+const buf = new Uint8Array(size);
+
+Deno.bench({
+    name: 'Deno.Conn.write',
+    group: 'RTT',
+    baseline: true,
+    async fn() {
+        await conn.write(buf);
+        await conn.read(buf);
+    }
+});
+
+Deno.bench({
+    name: 'Deno.Conn.write',
+    group: 'send',
+    baseline: true,
+    async fn() {
+        await conn.write(buf);
     }
 });
